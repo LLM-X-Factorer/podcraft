@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "podcraft"
+version = "0.1.0"
+description = "Turn any Markdown into a two-person dialogue podcast with one command"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "LLM-X-Factorer" }]
+keywords = ["podcast", "tts", "markdown", "dialogue", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "click>=8.0",
+    "edge-tts>=7.0",
+    "jinja2>=3.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+gemini = ["google-genai>=1.0"]
+anthropic = ["anthropic>=0.80"]
+openai = ["openai>=1.0"]
+volcano = ["websockets>=12.0"]
+all = ["google-genai>=1.0", "anthropic>=0.80", "openai>=1.0", "websockets>=12.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+podcraft = "podcraft.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/LLM-X-Factorer/podcraft"
+Repository = "https://github.com/LLM-X-Factorer/podcraft"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/podcraft"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["integration: tests that require external services or ffmpeg"]
