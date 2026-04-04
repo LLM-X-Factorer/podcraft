@@ -80,9 +80,11 @@ def publish(
     # Step 3: Synthesize audio
     step += 1
     audio_path = output_dir / f"{slug}.mp3"
-    if audio_path.exists():
+    if audio_path.exists() and audio_path.stat().st_size > 0:
         print(f"\n[{step}/{total_steps}] Audio already exists: {audio_path}")
     else:
+        if audio_path.exists():
+            audio_path.unlink()  # remove 0-byte leftover from failed previous attempt
         print(f"\n[{step}/{total_steps}] Synthesizing audio ({config.tts.engine})...")
         engine = create_engine(config)
         asyncio.run(engine.synthesize_dialogue(dialogue, str(audio_path)))

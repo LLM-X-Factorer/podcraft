@@ -240,13 +240,19 @@ def auto_publish(queue: str):
         click.echo("  No research_file in queue item. Cannot publish.")
         return
 
-    run_publish(input_path, config, root, title, episode_num)
-    popped = pop_queue(queue_path)
-    click.echo(f"  Popped from queue: {popped.get('title', '')}")
+    result = run_publish(input_path, config, root, title, episode_num)
 
-    from .queue import queue_length
-    remaining = queue_length(queue_path)
-    click.echo(f"  Queue remaining: {remaining}")
+    # Only pop queue if publishing fully succeeded.
+    # If release is enabled, require audio_url; otherwise, require audio_file.
+    success = bool(result.get("audio_url")) if config.release.enabled else bool(result.get("audio_file"))
+    if success:
+        popped = pop_queue(queue_path)
+        click.echo(f"  Popped from queue: {popped.get('title', '')}")
+        from .queue import queue_length
+        remaining = queue_length(queue_path)
+        click.echo(f"  Queue remaining: {remaining}")
+    else:
+        click.echo("  Publish incomplete — queue not popped. Fix the issue and retry.")
 
 
 @main.command()
