@@ -113,7 +113,13 @@ class VolcanoPodcastEngine:
             raise RuntimeError("VOLCANO_PODCAST_APP_ID and VOLCANO_PODCAST_TOKEN must be set.")
 
     async def synthesize_dialogue(self, dialogue: list[dict], output_path: str) -> dict:
-        speakers = DEFAULT_SPEAKERS
+        # Use voices from config if they look like Volcano speaker IDs (not Edge TTS -Neural format)
+        host_v = self.config.host.voice
+        guest_v = self.config.guest.voice
+        if host_v and "-Neural" not in host_v:
+            speakers = [host_v, guest_v or DEFAULT_SPEAKERS[1]]
+        else:
+            speakers = DEFAULT_SPEAKERS
         role_to_speaker = {"host": speakers[0], "guest": speakers[1]}
 
         nlp_texts = []
