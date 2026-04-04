@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "podcraft"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn any Markdown into a two-person dialogue podcast with one command"
 readme = "README.md"
 license = "MIT"
@@ -30,7 +30,8 @@ gemini = ["google-genai>=1.0"]
 anthropic = ["anthropic>=0.80"]
 openai = ["openai>=1.0"]
 volcano = ["websockets>=12.0"]
-all = ["google-genai>=1.0", "anthropic>=0.80", "openai>=1.0", "websockets>=12.0"]
+imagen = ["google-genai>=1.0", "Pillow>=10.0"]
+all = ["google-genai>=1.0", "anthropic>=0.80", "openai>=1.0", "websockets>=12.0", "Pillow>=10.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]

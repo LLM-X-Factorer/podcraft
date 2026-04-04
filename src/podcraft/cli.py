@@ -69,6 +69,30 @@ tts:
   sample_rate: 44100
   bitrate: "192k"
 
+cover:
+  engine: "disabled"     # disabled | placeholder (no API) | imagen (Gemini Imagen 4)
+  size: 1400
+  overlay:
+    title: "{title}"
+    subtitle: ""
+    title_font_size: 80
+    subtitle_font_size: 28
+    title_color: [212, 175, 105]
+    subtitle_color: [180, 155, 100]
+  # theme_keywords:      # optional: map keywords in episode title to custom Imagen prompts
+  #   "music": "Abstract sound waves and musical notes, artistic, no text"
+  #   "tech": "Futuristic circuit patterns, blue tones, no text"
+
+shownotes:
+  enabled: true
+  max_tokens: 1500
+  temperature: 0.5
+
+release:
+  enabled: false         # set to true to upload audio to GitHub Releases
+  repo: ""               # "owner/repo" — auto-detected from git remote if empty
+  tag: "v1.0.0-podcast"
+
 feed:
   audio_base_url: ""     # URL where your MP3s are hosted
   output: "podcast-feed.xml"
@@ -84,15 +108,20 @@ paths:
     for d in ["output", "scripts", "prompts", "episodes"]:
         (Path.cwd() / d).mkdir(exist_ok=True)
 
-    # Copy language-appropriate prompt template
+    # Copy language-appropriate prompt templates
     src_template = TEMPLATES_DIR / f"system_{lang_short}.md"
     if not src_template.exists():
         src_template = TEMPLATES_DIR / "system_en.md"
-    dst_template = Path.cwd() / "prompts" / "system.md"
-    shutil.copy2(src_template, dst_template)
+    shutil.copy2(src_template, Path.cwd() / "prompts" / "system.md")
+
+    src_notes = TEMPLATES_DIR / f"shownotes_{lang_short}.md"
+    if not src_notes.exists():
+        src_notes = TEMPLATES_DIR / "shownotes_en.md"
+    if src_notes.exists():
+        shutil.copy2(src_notes, Path.cwd() / "prompts" / "shownotes.md")
 
     click.echo(f"  Initialized PodCraft project ({language})")
-    click.echo(f"  Created: {CONFIG_FILENAME}, prompts/system.md")
+    click.echo(f"  Created: {CONFIG_FILENAME}, prompts/system.md, prompts/shownotes.md")
     click.echo(f"\n  Next steps:")
     click.echo(f"  1. Export your LLM API key: export GEMINI_API_KEY=...")
     click.echo(f"  2. Put a Markdown file in episodes/")
@@ -141,6 +170,83 @@ def script(input_file: str, output: str, focus: str):
 
     out_path.write_text(json.dumps(dialogue, ensure_ascii=False, indent=2), encoding="utf-8")
     click.echo(f"Script saved: {out_path} ({len(dialogue)} turns)")
+
+
+@main.command()
+@click.argument("topic", required=False, default="")
+@click.option("--description", "-d", default="", help="Topic description for targeted search")
+@click.option("--output", "-o", default="", help="Output file path (default: episodes/<slug>.md)")
+@click.option("--queries", "-q", multiple=True, help="Custom search queries (repeat for multiple)")
+def research(topic: str, description: str, output: str, queries: tuple):
+    """Research a topic via web search and generate a Markdown research document."""
+    from .research import research_topic
+    from .utils import slugify
+
+    config, root = load_config()
+
+    if not config.research.enabled:
+        click.echo("  Research is disabled. Set research.enabled: true in podcraft.yaml.")
+        return
+
+    if not topic:
+        click.echo("  Please provide a topic: podcraft research \"Your Topic\"")
+        return
+
+    click.echo(f"Researching: {topic}")
+    search_queries = list(queries) if queries else None
+    result = research_topic(topic, config, root, search_queries, description)
+
+    if output:
+        out_path = Path(output)
+    else:
+        episodes_dir = root / "episodes"
+        episodes_dir.mkdir(exist_ok=True)
+        out_path = episodes_dir / f"{slugify(topic)}.md"
+
+    out_path.write_text(result, encoding="utf-8")
+    click.echo(f"Research saved: {out_path} ({len(result)} chars)")
+
+
+@main.command("auto-publish")
+@click.option("--queue", "-q", default="publish-queue.json", help="Queue file path")
+def auto_publish(queue: str):
+    """Publish the next episode from the publish queue."""
+    from .queue import get_next, pop_queue
+    from .pipeline import publish as run_publish
+
+    config, root = load_config()
+    queue_path = root / queue
+
+    item = get_next(queue_path)
+    if not item:
+        click.echo("  Queue is empty.")
+        return
+
+    episode_num = item.get("episode", 0)
+    title = item.get("title", "")
+    research_file = item.get("research_file", "")
+
+    click.echo(f"Next in queue: {title}")
+
+    # Check research file exists
+    if research_file:
+        research_path = root / research_file
+        if not research_path.exists():
+            click.echo(f"  Research file not found: {research_path}")
+            click.echo("  Run 'podcraft research' first or check the path in publish-queue.json.")
+            return
+        input_path = str(research_path)
+    else:
+        click.echo("  No research_file in queue item. Cannot publish.")
+        return
+
+    run_publish(input_path, config, root, title, episode_num)
+    popped = pop_queue(queue_path)
+    click.echo(f"  Popped from queue: {popped.get('title', '')}")
+
+    from .queue import queue_length
+    remaining = queue_length(queue_path)
+    click.echo(f"  Queue remaining: {remaining}")
 
 
 @main.command()

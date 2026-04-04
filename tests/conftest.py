@@ -3,7 +3,10 @@
 import pytest
 from pathlib import Path
 
-from podcraft.config import PodcraftConfig, PodcastConfig, HostConfig, LLMConfig, TTSConfig, FeedConfig
+from podcraft.config import (
+    PodcraftConfig, PodcastConfig, HostConfig, LLMConfig, TTSConfig, FeedConfig,
+    CoverConfig, ShowNotesConfig, ReleaseConfig,
+)
 
 
 @pytest.fixture

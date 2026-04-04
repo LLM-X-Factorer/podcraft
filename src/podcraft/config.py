@@ -58,6 +58,39 @@ class FeedConfig:
 
 
 @dataclass
+class CoverConfig:
+    engine: str = "disabled"   # disabled | placeholder | imagen
+    size: int = 1400
+    overlay: dict = field(default_factory=dict)
+    theme_keywords: dict = field(default_factory=dict)
+    prompt_template: str = ""  # custom Imagen prompt (Jinja2)
+
+
+@dataclass
+class ShowNotesConfig:
+    enabled: bool = True
+    max_tokens: int = 1500
+    temperature: float = 0.5
+
+
+@dataclass
+class ReleaseConfig:
+    enabled: bool = False
+    repo: str = ""   # "owner/repo", auto-detected from git remote if empty
+    tag: str = "v1.0.0-podcast"
+
+
+@dataclass
+class ResearchConfig:
+    enabled: bool = False
+    search_engine: str = "gemini_grounding"   # gemini_grounding | disabled
+    max_searches: int = 3
+    max_research_chars: int = 30000
+    max_output_tokens: int = 8192
+    temperature: float = 0.7
+
+
+@dataclass
 class PodcraftConfig:
     podcast: PodcastConfig = field(default_factory=PodcastConfig)
     host: HostConfig = field(default_factory=lambda: HostConfig(name="Alex"))
@@ -65,6 +98,10 @@ class PodcraftConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+    cover: CoverConfig = field(default_factory=CoverConfig)
+    shownotes: ShowNotesConfig = field(default_factory=ShowNotesConfig)
+    release: ReleaseConfig = field(default_factory=ReleaseConfig)
+    research: ResearchConfig = field(default_factory=ResearchConfig)
     paths: dict = field(default_factory=lambda: {
         "output": "output/",
         "scripts": "scripts/",
@@ -128,6 +165,14 @@ def load_config(path: Path | None = None) -> tuple[PodcraftConfig, Path]:
         _merge_dataclass(config.tts, raw["tts"])
     if "feed" in raw:
         _merge_dataclass(config.feed, raw["feed"])
+    if "cover" in raw:
+        _merge_dataclass(config.cover, raw["cover"])
+    if "shownotes" in raw:
+        _merge_dataclass(config.shownotes, raw["shownotes"])
+    if "release" in raw:
+        _merge_dataclass(config.release, raw["release"])
+    if "research" in raw:
+        _merge_dataclass(config.research, raw["research"])
     if "paths" in raw:
         config.paths.update(raw["paths"])
 
