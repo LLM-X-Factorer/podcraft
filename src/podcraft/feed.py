@@ -67,7 +67,8 @@ def build_rss(episodes: list[dict], config: PodcraftConfig) -> str:
             "type": "audio/mpeg",
         })
 
-        guid = hashlib.md5(ep["title"].encode()).hexdigest()
+        guid_source = ep.get("audio_url") or ep["title"]
+        guid = hashlib.md5(guid_source.encode()).hexdigest()
         SubElement(item, "guid", {"isPermaLink": "false"}).text = guid
         SubElement(item, "pubDate").text = format_rfc822(ep["pub_date"])
         SubElement(item, f"{{{ITUNES_NS}}}duration").text = duration
