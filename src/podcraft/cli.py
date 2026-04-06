@@ -256,36 +256,110 @@ def auto_publish(queue: str):
 
 
 @main.command()
-def feed():
-    """Regenerate the RSS feed from existing episodes."""
+@click.option("--rebuild", is_flag=True, help="Rebuild manifest from existing MP3 files (migration helper)")
+def feed(rebuild: bool):
+    """Regenerate the RSS feed from the episode manifest."""
     from .feed import build_rss
+    from .manifest import load_manifest, save_manifest, MANIFEST_FILENAME
     from datetime import datetime, timezone, timedelta
 
     config, root = load_config()
     paths = config.resolve_paths(root)
     output_dir = paths["output"]
+    manifest_path = output_dir / MANIFEST_FILENAME
 
-    episodes = sorted(output_dir.glob("*.mp3"))
+    if rebuild:
+        _rebuild_manifest(config, paths, manifest_path)
+
+    episodes = load_manifest(manifest_path)
     if not episodes:
-        click.echo("No episodes found in output directory.")
+        click.echo("No episodes in manifest. Use --rebuild to create from existing files.")
         return
 
     tz = timezone(timedelta(hours=8))
     ep_list = []
-    for i, ep_path in enumerate(episodes):
-        notes_path = paths["scripts"] / f"{ep_path.stem}_notes.txt"
-        description = notes_path.read_text(encoding="utf-8") if notes_path.exists() else f"{config.podcast.title} - {ep_path.stem}"
+    for ep in episodes:
+        pub_date = ep.get("pub_date", "")
+        if isinstance(pub_date, str) and pub_date:
+            pub_date = datetime.fromisoformat(pub_date)
+        else:
+            pub_date = datetime.now(tz)
 
         ep_list.append({
-            "title": f"EP{i + 1:02d}: {ep_path.stem.replace('-', ' ').replace('_', ' ').title()}",
-            "description": description,
-            "audio_file": str(ep_path),
-            "audio_url": f"{config.feed.audio_base_url}/{ep_path.name}",
-            "pub_date": datetime.now(tz) - timedelta(days=len(episodes) - i - 1),
-            "episode_number": i + 1,
+            "title": ep["title"],
+            "description": ep.get("description", ""),
+            "audio_file": ep["audio_file"],
+            "audio_url": ep.get("audio_url", ""),
+            "pub_date": pub_date,
+            "episode_number": ep["episode_number"],
         })
 
     rss_xml = build_rss(ep_list, config)
     feed_path = root / config.feed.output
     feed_path.write_text(rss_xml, encoding="utf-8")
     click.echo(f"RSS feed updated: {len(ep_list)} episodes → {feed_path}")
+
+
+def _rebuild_manifest(config, paths, manifest_path):
+    """Rebuild manifest from existing MP3 files and show notes."""
+    import re
+    from .manifest import save_manifest
+    from datetime import datetime, timezone, timedelta
+
+    output_dir = paths["output"]
+    scripts_dir = paths["scripts"]
+
+    mp3_files = sorted(
+        f for f in output_dir.glob("*.mp3")
+        if "silence" not in f.name and "test" not in f.name
+    )
+
+    if not mp3_files:
+        click.echo("No MP3 files found to rebuild from.")
+        return
+
+    tz = timezone(timedelta(hours=8))
+    episodes = []
+    for ep_path in mp3_files:
+        stem = ep_path.stem
+
+        # Try to parse episode number from filename (ep06-xxx or module-N-xxx)
+        ep_match = re.match(r"ep(\d+)", stem)
+        mod_match = re.match(r"module-(\d+)", stem)
+        if ep_match:
+            ep_num = int(ep_match.group(1))
+        elif mod_match:
+            ep_num = int(mod_match.group(1))
+        else:
+            click.echo(f"  Skipping (can't parse episode number): {ep_path.name}")
+            continue
+
+        # Build title from filename
+        if ep_match:
+            name_part = stem[len(ep_match.group(0)):].lstrip("-").replace("-", " ").replace("_", " ")
+            title = f"EP{ep_num:02d}: {name_part}" if name_part else f"EP{ep_num:02d}"
+        else:
+            name_part = stem[len(mod_match.group(0)) + 1:].lstrip("-").replace("-", " ").replace("_", " ").title()
+            title = f"EP{ep_num:02d}: {name_part}" if name_part else f"EP{ep_num:02d}"
+
+        notes_path = scripts_dir / f"{stem}_notes.txt"
+        description = (
+            notes_path.read_text(encoding="utf-8")
+            if notes_path.exists()
+            else f"{config.podcast.title} - {title}"
+        )
+
+        audio_url = f"{config.feed.audio_base_url}/{ep_path.name}" if config.feed.audio_base_url else ""
+
+        episodes.append({
+            "title": title,
+            "episode_number": ep_num,
+            "audio_file": str(ep_path),
+            "audio_url": audio_url,
+            "description": description,
+            "pub_date": datetime.now(tz).isoformat(),
+            "cover_file": "",
+        })
+
+    save_manifest(manifest_path, episodes)
+    click.echo(f"Manifest rebuilt: {len(episodes)} episodes → {manifest_path}")

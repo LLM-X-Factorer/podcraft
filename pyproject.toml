@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "podcraft"
-version = "0.2.0"
+version = "0.2.1"
 description = "Turn any Markdown into a two-person dialogue podcast with one command"
 readme = "README.md"
 license = "MIT"

@@ -146,11 +146,30 @@ def publish(
         except Exception as e:
             print(f"  Release upload failed: {e}")
 
-    # Step 7: Update RSS feed + git push (optional)
+    # Step 7: Save to manifest + update RSS feed + git push (optional)
     if config.release.enabled and audio_url:
         step += 1
-        print(f"\n[{step}/{total_steps}] Updating RSS feed...")
+        print(f"\n[{step}/{total_steps}] Updating manifest and RSS feed...")
         try:
+            from .manifest import add_episode, build_manifest_entry, MANIFEST_FILENAME
+            notes_path = scripts_dir / f"{slug}_notes.txt"
+            description = (
+                notes_path.read_text(encoding="utf-8")
+                if notes_path.exists()
+                else show_notes or f"{config.podcast.title} - {title}"
+            )
+            entry = build_manifest_entry(
+                title=title,
+                episode_number=episode_num,
+                audio_file=str(audio_path),
+                audio_url=audio_url,
+                description=description,
+                pub_date=datetime.now(timezone(timedelta(hours=8))),
+                cover_file=cover_file,
+            )
+            manifest_path = output_dir / MANIFEST_FILENAME
+            add_episode(manifest_path, entry)
+            print(f"  Manifest updated: {manifest_path}")
             _update_rss_and_push(config, project_root, paths)
         except Exception as e:
             print(f"  RSS update failed: {e}")
@@ -194,35 +213,35 @@ def _count_steps(config: PodcraftConfig) -> int:
 
 
 def _update_rss_and_push(config: PodcraftConfig, project_root: Path, paths: dict) -> None:
-    """Regenerate RSS feed, git commit, and push."""
+    """Regenerate RSS feed from manifest, git commit, and push."""
     from .feed import build_rss
+    from .manifest import load_manifest, MANIFEST_FILENAME
     from datetime import datetime, timezone, timedelta
 
     output_dir = paths["output"]
-    scripts_dir = paths["scripts"]
+    manifest_path = output_dir / MANIFEST_FILENAME
+    episodes = load_manifest(manifest_path)
 
-    mp3_files = sorted(
-        f for f in output_dir.glob("*.mp3")
-        if "silence" not in f.name and "test" not in f.name
-    )
+    if not episodes:
+        print("  No episodes in manifest — skipping RSS update")
+        return
 
     tz = timezone(timedelta(hours=8))
     ep_list = []
-    for i, ep_path in enumerate(mp3_files):
-        notes_path = scripts_dir / f"{ep_path.stem}_notes.txt"
-        description = (
-            notes_path.read_text(encoding="utf-8")
-            if notes_path.exists()
-            else f"{config.podcast.title} - {ep_path.stem}"
-        )
-        audio_url = f"{config.feed.audio_base_url}/{ep_path.name}" if config.feed.audio_base_url else ""
+    for ep in episodes:
+        pub_date = ep.get("pub_date", "")
+        if isinstance(pub_date, str) and pub_date:
+            pub_date = datetime.fromisoformat(pub_date)
+        else:
+            pub_date = datetime.now(tz)
+
         ep_list.append({
-            "title": f"EP{i + 1:02d}: {ep_path.stem.replace('-', ' ').replace('_', ' ').title()}",
-            "description": description,
-            "audio_file": str(ep_path),
-            "audio_url": audio_url,
-            "pub_date": datetime.now(tz) - timedelta(days=len(mp3_files) - i - 1),
-            "episode_number": i + 1,
+            "title": ep["title"],
+            "description": ep.get("description", ""),
+            "audio_file": ep["audio_file"],
+            "audio_url": ep.get("audio_url", ""),
+            "pub_date": pub_date,
+            "episode_number": ep["episode_number"],
         })
 
     rss_xml = build_rss(ep_list, config)
