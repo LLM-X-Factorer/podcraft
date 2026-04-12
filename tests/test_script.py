@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from podcraft.script import _load_system_prompt, generate_script
+from podcraft.script import _load_system_prompt, generate_script, _extract_list, _normalize_dialogue
 from podcraft.config import PodcraftConfig, PodcastConfig, HostConfig, LLMConfig
 
 
@@ -82,3 +82,84 @@ def test_auto_engine_no_key():
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(RuntimeError, match="No API key found"):
             generate_script("Content", config)
+
+
+# --- _extract_list tests ---
+
+def test_extract_list_from_list():
+    data = [{"role": "host", "text": "hi"}]
+    assert _extract_list(data) == data
+
+
+def test_extract_list_from_dict():
+    data = {"dialogue": [{"role": "host", "text": "hi"}]}
+    assert _extract_list(data) == [{"role": "host", "text": "hi"}]
+
+
+def test_extract_list_from_nested_dict():
+    data = {"result": {"meta": "ignored"}, "turns": [{"role": "guest", "text": "ok"}]}
+    assert _extract_list(data) == [{"role": "guest", "text": "ok"}]
+
+
+def test_extract_list_bad_type():
+    with pytest.raises(ValueError, match="Expected list or dict"):
+        _extract_list("not a list")
+
+
+# --- _normalize_dialogue tests ---
+
+def test_normalize_standard_format():
+    raw = [{"role": "host", "text": "hi"}, {"role": "guest", "text": "hello"}]
+    assert _normalize_dialogue(raw) == raw
+
+
+def test_normalize_speaker_alias():
+    raw = [{"speaker": "host", "text": "hi"}, {"speaker": "guest", "text": "hello"}]
+    result = _normalize_dialogue(raw)
+    assert result[0] == {"role": "host", "text": "hi"}
+    assert result[1] == {"role": "guest", "text": "hello"}
+
+
+def test_normalize_content_alias():
+    raw = [{"role": "host", "content": "hi"}]
+    result = _normalize_dialogue(raw)
+    assert result[0] == {"role": "host", "text": "hi"}
+
+
+def test_normalize_chinese_role_names():
+    raw = [{"role": "主持人", "text": "hi"}, {"role": "专家", "text": "hello"}]
+    result = _normalize_dialogue(raw)
+    assert result[0]["role"] == "host"
+    assert result[1]["role"] == "guest"
+
+
+def test_normalize_missing_role_alternates():
+    raw = [{"text": "first"}, {"text": "second"}, {"text": "third"}]
+    result = _normalize_dialogue(raw)
+    assert result[0]["role"] == "host"
+    assert result[1]["role"] == "guest"
+    assert result[2]["role"] == "host"
+
+
+def test_normalize_skips_empty_text():
+    raw = [{"role": "host", "text": ""}, {"role": "guest", "text": "ok"}]
+    result = _normalize_dialogue(raw)
+    assert len(result) == 1
+    assert result[0]["role"] == "guest"
+
+
+def test_normalize_skips_non_dict():
+    raw = ["not a dict", {"role": "host", "text": "ok"}]
+    result = _normalize_dialogue(raw)
+    assert len(result) == 1
+
+
+def test_normalize_empty_raises():
+    with pytest.raises(ValueError, match="No valid dialogue turns"):
+        _normalize_dialogue([])
+
+
+def test_normalize_name_alias():
+    raw = [{"name": "host", "text": "hi"}]
+    result = _normalize_dialogue(raw)
+    assert result[0]["role"] == "host"

@@ -10,6 +10,66 @@ from .config import PodcraftConfig, get_api_key
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+# Maps common alternative field names to the canonical "role"/"text" keys
+_ROLE_ALIASES = {"speaker", "character", "name", "actor"}
+_TEXT_ALIASES = {"content", "dialogue", "line", "message", "speech"}
+
+
+def _extract_list(data) -> list:
+    """Extract dialogue list from LLM output that may be wrapped in a dict."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, list):
+                return v
+    raise ValueError(f"Expected list or dict wrapping a list, got {type(data).__name__}")
+
+
+def _normalize_dialogue(raw: list) -> list[dict]:
+    """Validate and normalize dialogue turns to [{"role": ..., "text": ...}, ...]."""
+    result = []
+    for i, turn in enumerate(raw):
+        if not isinstance(turn, dict):
+            continue
+
+        # Resolve role
+        role = turn.get("role")
+        if role is None:
+            for alias in _ROLE_ALIASES:
+                if alias in turn:
+                    role = turn[alias]
+                    break
+        if role is None:
+            # Alternate between host/guest based on position
+            role = "host" if len(result) % 2 == 0 else "guest"
+
+        # Normalize role value
+        role = str(role).lower().strip()
+        if role not in ("host", "guest"):
+            # Try to infer from common patterns
+            if any(k in role for k in ("主持", "host", "主播")):
+                role = "host"
+            else:
+                role = "guest"
+
+        # Resolve text
+        text = turn.get("text")
+        if text is None:
+            for alias in _TEXT_ALIASES:
+                if alias in turn:
+                    text = turn[alias]
+                    break
+        if not text:
+            continue
+
+        result.append({"role": role, "text": str(text)})
+
+    if not result:
+        raise ValueError("No valid dialogue turns found in LLM output")
+
+    return result
+
 
 def _load_system_prompt(config: PodcraftConfig, project_root: Path | None = None) -> str:
     """Load system prompt from user's prompts/ dir or built-in templates."""
@@ -57,13 +117,15 @@ def generate_script(
         user_prompt += f"\n\n重点关注以下方面：{focus}"
 
     if engine == "gemini":
-        return _generate_gemini(system_prompt, user_prompt, config)
+        raw = _generate_gemini(system_prompt, user_prompt, config)
     elif engine == "anthropic":
-        return _generate_anthropic(system_prompt, user_prompt, config)
+        raw = _generate_anthropic(system_prompt, user_prompt, config)
     elif engine == "openai":
-        return _generate_openai(system_prompt, user_prompt, config)
+        raw = _generate_openai(system_prompt, user_prompt, config)
     else:
         raise ValueError(f"Unknown LLM engine: {engine}")
+
+    return _normalize_dialogue(_extract_list(raw))
 
 
 def _generate_gemini(system_prompt: str, user_prompt: str, config: PodcraftConfig) -> list[dict]:
@@ -83,8 +145,9 @@ def _generate_gemini(system_prompt: str, user_prompt: str, config: PodcraftConfi
                     "response_mime_type": "application/json",
                 },
             )
-            return json.loads(response.text.strip())
-        except (json.JSONDecodeError, Exception) as e:
+            data = json.loads(response.text.strip())
+            return _extract_list(data)
+        except (json.JSONDecodeError, ValueError, Exception) as e:
             print(f"  Attempt {attempt + 1} failed: {e}")
             if attempt == 2:
                 raise
@@ -125,9 +188,4 @@ def _generate_openai(system_prompt: str, user_prompt: str, config: PodcraftConfi
     )
 
     data = json.loads(response.choices[0].message.content)
-    # OpenAI json_object wraps in a key; extract the array
-    if isinstance(data, dict):
-        for v in data.values():
-            if isinstance(v, list):
-                return v
-    return data
+    return _extract_list(data)
