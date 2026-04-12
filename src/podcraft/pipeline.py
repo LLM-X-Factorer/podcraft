@@ -146,33 +146,33 @@ def publish(
         except Exception as e:
             print(f"  Release upload failed: {e}")
 
-    # Step 7: Save to manifest + update RSS feed + git push (optional)
-    if config.release.enabled and audio_url:
-        step += 1
-        print(f"\n[{step}/{total_steps}] Updating manifest and RSS feed...")
-        try:
-            from .manifest import add_episode, build_manifest_entry, MANIFEST_FILENAME
-            notes_path = scripts_dir / f"{slug}_notes.txt"
-            description = (
-                notes_path.read_text(encoding="utf-8")
-                if notes_path.exists()
-                else show_notes or f"{config.podcast.title} - {title}"
-            )
-            entry = build_manifest_entry(
-                title=title,
-                episode_number=episode_num,
-                audio_file=str(audio_path),
-                audio_url=audio_url,
-                description=description,
-                pub_date=datetime.now(timezone(timedelta(hours=8))),
-                cover_file=cover_file,
-            )
-            manifest_path = output_dir / MANIFEST_FILENAME
-            add_episode(manifest_path, entry)
-            print(f"  Manifest updated: {manifest_path}")
+    # Step 7: Save to manifest (always) + update RSS feed + git push (if release enabled)
+    step += 1
+    print(f"\n[{step}/{total_steps}] Updating manifest...")
+    try:
+        from .manifest import add_episode, build_manifest_entry, MANIFEST_FILENAME
+        notes_path = scripts_dir / f"{slug}_notes.txt"
+        description = (
+            notes_path.read_text(encoding="utf-8")
+            if notes_path.exists()
+            else show_notes or f"{config.podcast.title} - {title}"
+        )
+        entry = build_manifest_entry(
+            title=title,
+            episode_number=episode_num,
+            audio_file=str(audio_path),
+            audio_url=audio_url or "",
+            description=description,
+            pub_date=datetime.now(timezone(timedelta(hours=8))),
+            cover_file=cover_file,
+        )
+        manifest_path = output_dir / MANIFEST_FILENAME
+        add_episode(manifest_path, entry)
+        print(f"  Manifest updated: {manifest_path}")
+        if config.release.enabled and audio_url:
             _update_rss_and_push(config, project_root, paths)
-        except Exception as e:
-            print(f"  RSS update failed: {e}")
+    except Exception as e:
+        print(f"  Manifest/RSS update failed: {e}")
 
     print(f"\n{'=' * 60}")
     print(f"Done: {title}")
@@ -201,14 +201,13 @@ def publish(
 
 def _count_steps(config: PodcraftConfig) -> int:
     """Count active pipeline steps based on config."""
-    steps = 3  # read, script, audio
+    steps = 4  # read, script, audio, manifest
     if config.cover.engine != "disabled":
         steps += 1
     if config.shownotes.enabled:
         steps += 1
     if config.release.enabled:
         steps += 1  # upload
-        steps += 1  # RSS
     return steps
 
 
